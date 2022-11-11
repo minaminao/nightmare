@@ -1,19 +1,19 @@
 # Heap Exploitation
 
 <!-- This module is literally just an explanation as to how various parts of the heap works. The heap is an area of memory used for dynamic allocation (meaning that it can allocate an amount of space that isn't known at compile time), usually through the use of things like malloc. The thing is malloc has a lot of functionality behind how it operates in order to efficiently do its job (both in terms of space and run time complexity). This gives us a large attack surface on malloc, how in certain situations we can leverage something such as a single null byte overflow into full blown remote code execution. However in order to carry out these attacks effectively, you will need to understand how certain parts of the heap work (it can get a bit more complicated than overwriting a saved return address of a stack). The purpose of this module is to explain some of those parts. Let's get to work. Let's get to work. -->
-このモジュールは文字通り、ヒープの様々な部分がどのように機能するかを説明するものです。ヒープとは動的割り当て(コンパイル時にはわからない領域を割り当てること)に使われるメモリ領域で、通常 malloc のようなものを使用します。mallocは、効率的に仕事をするために、その動作の背後に多くの機能を備えているということです（空間と実行時間の複雑さの両方の点から）。このため、mallocには大きな攻撃対象があり、特定の状況下では、1つのヌルバイトのオーバーフローを利用して、本格的なリモートコード実行を行うことができます。しかし、これらの攻撃を効果的に行うには、ヒープの特定の部分がどのように機能するかを理解する必要があります（スタックの保存された戻り先アドレスを上書きするよりも少し複雑になることがあります）。このモジュールの目的は、そのような部分のいくつかを説明することです。さあ、はじめましょう。仕事に取りかかりましょう。
+ここでは、ヒープの様々な構成要素がどのように機能するかを説明します。ヒープとは動的割り当て（コンパイル時にはわからない領域を割り当てること）に使われるメモリ領域で、通常mallocのようなものを使用します。mallocは、効率的に動作するために、その背後に多くの機能を備えています（空間と実行時間の複雑さの両方の点から）。このため、mallocには大きなアタックサーフェスがあり、特定の状況下では、1つのヌルバイトのオーバーフローを利用して、本格的なリモートコード実行を行うことができます。しかし、これらの攻撃を効果的に行うには、ヒープの特定の部分がどのように機能するかを理解する必要があります（スタックに保存されたリターンアドレスを上書きするよりも少し複雑になることがあります）。このページの目的は、そのような構成要素を説明することです。
 
 ## Libc
 
 <!-- The first thing I would like to say is that on linux all of the source code for standard functions like malloc and calloc is located in the libc. Across different libc versions the code for various functions change, including the code for malloc. That means that different libc's mallocs operate in different ways. For instance the same binary running with two different libc versions, can see different behavior in the heap. You'll see this come up a lot. When you are working on a heap challenge, make sure you are using the right libc file (assuming the heap challenge is libc dependent). You might need to use something like `LD_PRELOAD` to do this (which you can see how I tackle this in exploit). -->
-まず最初に言っておきたいのは、Linuxではmallocやcallocといった標準的な関数のソースコードはすべてlibcの中にあるということです。libcのバージョンが異なると、mallocのコードも含め、様々な関数のコードが変更されます。つまり、異なるlibcのmallocは異なる方法で動作します。例えば、同じバイナリを2つの異なるlibcのバージョンで実行すると、ヒープでの動作が異なることがあります。これはよくあることです。ヒープチャレンジをするときは、正しいlibcファイルを使っていることを確認してください（ヒープチャレンジがlibcに依存していると仮定して）。これを行うには `LD_PRELOAD` のようなものを使用する必要があるかもしれません（exploitでこれに対処する方法を見ることができます）。
+まず最初に言っておきたいのは、Linuxではmallocやcallocといった標準的な関数のソースコードはすべてlibcの中にあるということです。libcのバージョンが異なると、mallocのコードも含め、様々な関数のコードが変更されます。つまり、異なるlibcのmallocは異なる手法で動作します。例えば、同じバイナリを2つの異なるlibcのバージョンで実行すると、ヒープでの動作が異なることがあります。これはよくあることです。ヒープの問題を解くときは、（その問題がlibcに依存していると仮定して）正しいlibcファイルを使っていることを確認してください。正しいlibcを使用するには `LD_PRELOAD` のようなものを使用する必要があるかもしれません（exploitでこれに対処する方法を見ることができます）。
 
 ## Malloc Chunk
 
 <!-- When we call malloc, it returns a pointer to a chunk. Let's take a look at the memory allocation of the chunk for this code: -->
 mallocを呼び出すと、チャンクへのポインタが返されます。このコードでチャンクのメモリ割り当てを見てみましょう。
 
-```
+```c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,38 +57,38 @@ gef➤  x/4g 0x555555559250
 ```
 
 <!-- So we can see here is our heap chunk. Every heap chunk has something called a heap header (I often call it heap metadata). On `x64` systems it's the previous `0x10` bytes from the start of the heap chunk, and on `x86` systems it's the previous `0x8` bytes. It contains two separate values, the previous chunk size, and the chunk size. -->
-これが私たちのヒープチャンクです。すべてのヒープチャンクはヒープヘッダと呼ばれるものを持っています(私はこれをヒープメタデータと呼ぶことがあります)。`x64` システムでは、ヒープチャンクの先頭から前の `0x10` バイト、`x86` システムでは前の `0x8` バイトになります。これは 2 つの別々の値、前のチャンクのサイズとこのチャンクのサイズを含んでいます。
+これがヒープチャンクです。全てのヒープチャンクはヒープヘッダと呼ばれるものを持っています（これをヒープメタデータと呼ぶことがあります）。`x64` システムでは、ヒープチャンクの先頭から前の `0x10` バイト、`x86` システムでは前の `0x8` バイトになります。これは2つの別々の値、前のチャンクのサイズとこのチャンクのサイズを含んでいます。
 
 ```
 0x0:    0x00     - Previous Chunk Size
 0x8:    0x21     - Chunk Size
-0x10:     "pada"     - Content of chunk
+0x10:   "pada"   - Content of chunk
 ```
 
 <!-- The previous chunk size (if it is set, which it isn't in this case) designates the size of a previous chunk in the heap layout that has been freed. The heap size in this case is `0x21`, which differs from the size we requested. That's because the size we pass to malloc, is just the minimum amount of space we want to be able to store data in. Because of the heap header, `0x10` extra bytes is added on `x64` systems (extra `0x8` bytes is added on `x86`) systems. Also in some instances it will round a number up, so it can deal with it better with things like binning. For instance if you hand malloc a size of `0x7f`, it will return a size of `0x91`. It will round up the size `0x7f` to `0x80` so it can deal with it better. There is an extra `0x10` bytes for the heap header. Also the `0x1` from both the `0x91` and `0x21` come from the previous in use bit, which just signifies if the previous chunk is in use, and not freed. -->
-前のチャンクサイズ (設定されている場合、この場合は設定されていません) は、ヒープレイアウトの中で解放された前のチャンクの大きさを指定します。この場合のヒープサイズは `0x21` で、要求したサイズとは異なっています。これは、malloc に渡すサイズは、データを格納するために必要な最小限のスペースに過ぎないからです。ヒープヘッダのために、`x64`システムでは `0x10` バイトが追加されます (`x86` システムでは `0x8` バイトが追加されます)。また、場合によっては数値を丸めて、binningのようなものをよりうまく処理することができます。例えば、malloc に `0x7f` というサイズを渡すと、 `0x91` というサイズが返されます。これは、 `0x7f` というサイズを `0x80` に切り上げて、よりうまく処理できるようにしたものである。ヒープヘッダのために `0x10` バイトが追加されます。また、`0x91` と `0x21` の両方に含まれる `0x1` は、前の使用中のビットに由来するもので、これは前のチャンクが使用中であり、解放されていないことを意味します。
+前のチャンクのサイズ (設定されている場合、この場合は設定されていません) は、ヒープレイアウトの中で解放された前のチャンクのサイズを指定します。今回のケースのヒープサイズは `0x21` で、コードで指定したサイズとは異なっています。これは、mallocに渡すサイズは、データを格納するために必要な最小限のスペースに過ぎないからです。ヒープヘッダのために、`x64`システムでは `0x10` バイトが追加されます (`x86` システムでは `0x8` バイトが追加されます)。また、場合によっては数値を丸めて、binningのようなものをよりうまく処理することができます。例えば、malloc に `0x7f` というサイズを渡すと、 `0x91` というサイズが返されます。これは、 `0x7f` というサイズを `0x80` に切り上げて、よりうまく処理できるようにしたものです。ヒープヘッダのために `0x10` バイトが追加されます。また、`0x91` と `0x21` の両方に含まれる `0x1` は、前の使用中かどうかを表すビットに由来するもので、これは前のチャンクが使用中であり、解放されていないことを意味します。
 
 <!-- Also the first three bits of the malloc size are flags which specify different things (part of the reason for rounding). If the bit is set, it means that whatever the flag specifies is true (and vice versa): -->
 また、mallocのサイズの最初の3ビットは、異なることを指定するフラグです（丸めの理由の一部）。ビットがセットされていれば、フラグが指定するものは何でも真であることを意味します（逆もまた然り）。
 
 ```
-0x1:     Previous in Use     - Specifies that the chunk before it in memory is in use
-0x2:    Is MMAPPED               - Specifies that the chunk was obtained with mmap()
+0x1:     Previous in Use        - Specifies that the chunk before it in memory is in use
+0x2:     Is MMAPPED             - Specifies that the chunk was obtained with mmap()
 0x4:     Non Main Arena         - Specifies that the chunk was obtained from outside of the main arena
 ```
 
 <!-- We will talk about what some of this means later on. -->
-この一部の意味については、後ほどお話しします。
+この部分の意味については、後ほどお話しします。
 
 ## Binning
 
 <!-- So when malloc frees a chunk, it will typically insert it into one of the bin lists (assuming it can't do something like consolidate it with the top chunk). Then with a later allocation, it will check the bins to see if there are any freed chunks that it could allocate to serve the request. The purpose of this is so it can reuse previous freed chunks, for performance improvements. -->
-ですから、malloc がチャンクを解放するとき、それは通常、bin リストのひとつに挿入します（一番上のチャンクと統合するようなことはできないと仮定して）。そして、後の割り当てで、それはビンをチェックして、リクエストに対応するために割り当てられる解放されたチャンクがあるかどうかを確認します。この目的は、性能向上のために、以前に解放されたチャンクを再利用できるようにするためです。
+malloc がチャンクを解放するとき、それは通常、bin リストのひとつに挿入します（一番上のチャンクと統合するようなことはできないと仮定します）。そして、後の割り当てで、それはビンをチェックして、リクエストに対応するために割り当てられる解放されたチャンクがあるかどうかを確認します。この目的は、性能向上のために、以前に解放されたチャンクを再利用できるようにするためです。
 
 #### Fast Bins
 
 <!-- The fast bin consists of 7 linked lists, which are typically referred to by their `idx`. On `x64` the sizes range from `0x20` - `0x80` by default. Each idx (which is an index to the fastbins specifying a linked list of the fast bin) is separated by size. So a chunk of size `0x20-0x2f` would fit into `idx` `0`, a chunk of size `0x30-0x3f` would fit into `idx` `1`, and so on and so forth. -->
-fast bin は7つのリンクされたリストから構成され、通常 `idx` で参照されます。`x64` では、デフォルトで `0x20` - `0x80` のサイズになります。各 idx (fastbin のリンクリストを指定するインデックス) は、サイズによって区切られます。つまり、サイズ `0x20-0x2f` のチャンクは `idx` `0` に、サイズ `0x30-0x3f` のチャンクは `idx` `1` に、といった具合に収まることになります。
+fast bin は7つのLinked Listから構成され、通常 `idx` で参照されます。`x64` では、デフォルトで `0x20` - `0x80` のサイズになります。各 idx (fastbin のLinked Listを指定するインデックス) は、サイズによって区切られます。つまり、サイズ `0x20-0x2f` のチャンクは `idx` `0` に、サイズ `0x30-0x3f` のチャンクは `idx` `1` に、といった具合に収まることになります。
 
 ```
 ────────────────────── Fastbins for arena 0x7ffff7dd1b20 ──────────────────────
@@ -102,7 +102,7 @@ Fastbins[idx=6, size=0x70]  ←  Chunk(addr=0x6021e0, size=0x80, flags=PREV_INUS
 ```
 
 <!-- Not the actual structure of a fastbin is a linked list, where it points to the next chunk in the list (granted it points to the heap header of the next chunk): -->
-fastbinの実際の構造はリンクリストではなく、リストの次のチャンクを指す（次のチャンクのヒープヘッダを指すことを付与する）。
+fastbinの実際の構造はLinked Listではなく、リストの次のチャンクを指すものです（次のチャンクのヒープヘッダを指すことを付与する）。
 
 ```
 gef➤  x/g 0x602010
@@ -121,14 +121,14 @@ fast binはそう呼ばれていますが、これはfast binからの割り当�
 tcacheはFast Binsと同じようなものですが、異なる点があります。
 
 <!-- The tcache is a new type of binning mechanism introduced in libc version `2.26` (before that, you won't see the tcache). The tcache is specific to each thread, so each thread has its own tcache. The purpose of this is to speed up performance since malloc won't have to lock the bin in order to edit it. Also in versions of libc that have a tcache, the tcache is the first place that it will look to either allocate chunks from or place freed chunks (since it's faster). -->
-tcache は libc のバージョン `2.26` で導入された新しいタイプのbinning機構です (それ以前には tcache は見当たりません)。tcache は各スレッドに固有のもので、各スレッドは独自の tcache を持っています。malloc が編集するために bin をロックする必要がなくなるので、パフォーマンスを高速化するのが目的です。また、tcache を持つ libc のバージョンでは、tcache はチャンクの割り当てや解放されたチャンクの配置のために最初に見られる場所です（その方が速いからです）。
+tcacheはlibcのバージョン `2.26` で導入された新しいタイプのbinning機構です（それ以前にtcacheを見つけることはできません）。tcacheは各スレッドに固有のもので、各スレッドは独自のtcacheを持っています。mallocが編集するためにbinをロックする必要がなくなるので、パフォーマンスを高速化するのが目的です。また、tcacheを持つlibcのバージョンでは、tcacheはチャンクの割り当てや解放されたチャンクの配置のために最初に見られる場所です（その方が速いからです）。
 
 <!-- An actual tcache list is stored like a Fast Bin where it is a linked list. Also like the Fast Bin, it is LIFO. However a tcache list can only hold `7` chunks at a time. If a chunk is freed that meets the size requirement of a tcache however it's list is full, then it is inserted into the next bin that meets its size requirements. Let's see this in action. -->
-実際のtcacheリストはFast Binのようにリンクリストとして保存されます。また、Fast Bin のように、LIFO です。しかし、tcache list は一度に `7` チャンクしか保持できません。もし、tcache のサイズ要件を満たすチャンクが解放され、しかしリストが一杯になった場合、その chunk はサイズ要件を満たす次の bin に挿入されます。これを実際に見てみましょう。
+実際のtcacheリストはFast BinのようにLinked Listとして保存されます。また、Fast Bin のように、LIFO です。しかし、tcache list は一度に `7` チャンクしか保持できません。もし、tcache のサイズ要件を満たすチャンクが解放され、しかしリストが一杯になった場合、そのチャンクはサイズ要件を満たす次の bin に挿入されます。これを実際に見てみましょう。
 
 <!-- Here is our source code: -->
 以下は、私たちのソースコードです。
-```
+```c
 #include <stdlib.h>
 
 void main(void)
@@ -157,7 +157,8 @@ void main(void)
 }
 ```
 
-Here is the state of the heap after everything's been freed:
+<!-- Here is the state of the heap after everything's been freed: -->
+以下は、すべてが解放された後のヒープの状態です。
 ```
 gef➤  heap bins
 ───────────────────── Tcachebins for arena 0x7ffff7faec40 ─────────────────────
@@ -178,9 +179,11 @@ Fastbins[idx=6, size=0x70] 0x00
 [+] Found 0 chunks in 0 large non-empty bins.
 ```
 
-So we can see that we allocated and freed 8 chunks of size `0x20` (`0x10` from size requested, and `0x10` from heap metadata). The first seven of these chunks ended up in the tcache, since the tcache has a list for those size. After that list was filled up with seven chunks, the eight chunk we tried to free ended up in the fast bin, since there is a list for its size.
+<!-- So we can see that we allocated and freed 8 chunks of size `0x20` (`0x10` from size requested, and `0x10` from heap metadata). The first seven of these chunks ended up in the tcache, since the tcache has a list for those size. After that list was filled up with seven chunks, the eight chunk we tried to free ended up in the fast bin, since there is a list for its size. -->
+サイズ `0x20` の 8 個のチャンクを割り当てて解放したことがわかります（`0x10` は要求されたサイズから、`0x10` はヒープメタデータからです）。これらのチャンクのうち最初の 7 つは、tcache がこれらのサイズに対応するリストを持っているので、tcache で終了しました。そのリストが 7 つのチャンクでいっぱいになった後、解放しようとした 8 つのチャンクは、そのサイズのリストがあるため、fast bin で終了しました。
 
-Also just to emphasize that the `0x7` chunk limit is just per list of the tcache, not total chunks in the entire tcache bin, we can see here that the tcache holds `14` chunks across two separate bins:
+<!-- Also just to emphasize that the `0x7` chunk limit is just per list of the tcache, not total chunks in the entire tcache bin, we can see here that the tcache holds `14` chunks across two separate bins: -->
+また、`0x7` チャンクの制限は tcache のリストごとであって、tcache のビン全体のチャンクの合計ではないことを強調するために、ここでは tcache が二つの別々のビンに渡って `14` チャンクを保持していることを見ることができます。
 
 ```
 gef➤  heap bins
@@ -203,7 +206,8 @@ Fastbins[idx=6, size=0x70] 0x00
 [+] Found 0 chunks in 0 large non-empty bins.
 ```
 
-There are a total of `64` tcache lists, with idx values ranging from `0-63`, for chunk sizes between `0x20-0x410`:
+<!-- There are a total of `64` tcache lists, with idx values ranging from `0-63`, for chunk sizes between `0x20-0x410`: -->
+`64` 個の tcache リストがあり、idx の値は `0-63` で、チャンクサイズは `0x20-0x410` となっています。
 ```
 gef➤  heap bins
 ─────────────────────────────────────────────────────────────────────────────────── Tcachebins for arena 0x7ffff7faec40 ───────────────────────────────────────────────────────────────────────────────────
@@ -289,11 +293,14 @@ Fastbins[idx=6, size=0x70] 0x00
 [+] Found 0 chunks in 0 large non-empty bins.
 ```
 
-If it clears anything up, I feel like the best simple analogy I've heard for the tcache is it's the fast bin with less checks (and can take in somewhat larger chunks).
+<!-- If it clears anything up, I feel like the best simple analogy I've heard for the tcache is it's the fast bin with less checks (and can take in somewhat larger chunks). -->
+tcacheはチェックが少ない（そしてある程度大きな塊を取り込める）fast binというのが一番わかりやすい例えのような気がします。
 
 #### Unsorted, Large and Small Bins
 
-The Small Bin, Large Bin, and Unsorted Bin are tied more closely together in how they work than the other bins. The Unsorted, Large, and Small Bins all live together in the same array. Each of the bins has different indexes to this array:
+<!-- The Small Bin, Large Bin, and Unsorted Bin are tied more closely together in how they work than the other bins. The Unsorted, Large, and Small Bins all live together in the same array. Each of the bins has different indexes to this array: -->
+Small Bin、Large Bin、Unsorted Binは、他のBinに比べて、その動作がより密接に結びついています。
+Unsorted、Large、Small の各ビンは、すべて同じ配列に同居しています。各ビンは、この配列に対して異なるインデックスを持っています。
 
 ```
 0x00:         Not Used
@@ -302,15 +309,19 @@ The Small Bin, Large Bin, and Unsorted Bin are tied more closely together in how
 0x40 - 0x7e:  Large Bin
 ```
 
-There is one list for the Unsorted Bin, 62 for the Small Bin, and 63 for the Large Bin. let's talk about the unsorted bin first.
+<!-- There is one list for the Unsorted Bin, 62 for the Small Bin, and 63 for the Large Bin. let's talk about the unsorted bin first. -->
+Unsorted Binには1つ、Small Binには62、Large Binには63のリストがあります。まず、Unsorted Binについて説明しましょう。
 
 
-For chunks that are inserted into one of the bins, however isn't inserted into the fast bin or tcache, it will first be inserted into the Unsorted Bin. Chunks will remain there until they are sorted. This happens when another call is made to malloc. It will then check through the Unsorted Bin for any possible chunks that can meet the allocation. Also one thing that you will see in the unsorted bin, is it is capable of taking off a piece of a chunk to serve a request (it can also consolidate chunks together). Also when it checks the unsorted bin, it will check if there are chunks that belong in one of the small / large bin lists. If there are it will move those chunks to the appropriate bins.
+<!-- For chunks that are inserted into one of the bins, however isn't inserted into the fast bin or tcache, it will first be inserted into the Unsorted Bin. Chunks will remain there until they are sorted. This happens when another call is made to malloc. It will then check through the Unsorted Bin for any possible chunks that can meet the allocation. Also one thing that you will see in the unsorted bin, is it is capable of taking off a piece of a chunk to serve a request (it can also consolidate chunks together). Also when it checks the unsorted bin, it will check if there are chunks that belong in one of the small / large bin lists. If there are it will move those chunks to the appropriate bins. -->
+binの1つに挿入されたチャンクで、fast binやtcacheに挿入されていないものは、まずUnsorted Binに挿入されます。チャンクはソートされるまでそこに残ります。これは、mallocに別の呼び出しがなされたときに起こります。そして、Unsorted Binを通して、割り当てを満たすことができるチャンクをチェックします。また、ソートされていないビンで見られることの1つは、リクエストに応えるためにチャンクの一部を取り除くことができることです（チャンクを一緒に統合することもできます）。また、ソートされていないビンをチェックするとき、small bin / large binリストのいずれかに属するチャンクがあるかどうかをチェックします。もしあれば、それはそれらのチャンクを適切なビンに移動します。
 
-Like the fast bin, the 62 lists of the Small Bin and 63 lists of the Large Bin are divided by size. The small bins on `x64` consists of chunk sizes under `0x400` (`1024` bytes), and on `x86` consists of chunk sizes under `0x200` (`512` bytes), and the large bin consists of values above those.
+<!-- Like the fast bin, the 62 lists of the Small Bin and 63 lists of the Large Bin are divided by size. The small bins on `x64` consists of chunk sizes under `0x400` (`1024` bytes), and on `x86` consists of chunk sizes under `0x200` (`512` bytes), and the large bin consists of values above those. -->
+fast bin と同様に、Small Bin の 62 個のリストと Large Bin の 63 個のリストは、サイズによって分割される。x64`のsmall binは `0x400` (`1024` bytes) 以下のチャンクサイズからなり、`x86`のlarge binは `0x200` (`512` bytes) 以下のチャンクサイズからなり、それ以上の値で構成される。
 
-Let's take at this C code:
-```
+<!-- Let's take at this C code: -->
+このC言語のコードを見てみましょう。
+```c
 #include <stdlib.h>
 
 void main(void)
@@ -327,7 +338,8 @@ void main(void)
 }
 ```
 
-Let's see how the start of the heap before the `malloc(0x1000)`:
+<!-- Let's see how the start of the heap before the `malloc(0x1000)`: -->
+`malloc(0x1000)` の前に、ヒープの開始位置がどうなっているかを見てみましょう。
 
 ```
 gef➤  heap bins
@@ -350,7 +362,8 @@ Fastbins[idx=6, size=0x70] 0x00
 [+] Found 0 chunks in 0 large non-empty bins.
 ```
 
-Now let's see it after the `malloc(0x1000)`:
+<!-- Now let's see it after the `malloc(0x1000)`: -->
+では、`malloc(0x1000)`の後を見てみましょう。
 ```
 gef➤  heap bins
 [+] No Tcache in this version of libc
@@ -372,10 +385,12 @@ Fastbins[idx=6, size=0x70] 0x00
 [+] Found 0 chunks in 0 large non-empty bins.
 ```
 
-We can see since the unsorted bin chunk could not serve the requested size of `0x1000`, it was sorted to its corresponding list of in the small bin at idx `4`. Let's see what happens when we change the value to a large bin size:
+<!-- We can see since the unsorted bin chunk could not serve the requested size of `0x1000`, it was sorted to its corresponding list of in the small bin at idx `4`. Let's see what happens when we change the value to a large bin size: -->
+unsorted bin チャンクは要求されたサイズ `0x1000` を提供できないので、idx `4` の小さな bin にある対応するリストにソートされたことがわかります。この値を大きなビンのサイズに変更するとどうなるかを見てみましょう。
 
-The new C code:
-```
+<!-- The new C code: -->
+新しいCのコードです。
+```c
 #include <stdlib.h>
 
 void main(void)
@@ -552,7 +567,7 @@ Let's say you call `malloc(0x10)`, and it's your first time calling `malloc` so 
 
 Now malloc will try to allocate chunks from the bin lists before allocating them from the top chunk, since it's faster. However if there isn't a chunk in any of the bin lists that will satisfy it, it will pull from the Top Chunk. Let's see that in action with this C Code:
 
-```
+```c
 #include <stdlib.h>
 
 void main(void)
@@ -783,7 +798,7 @@ Aborted (core dumped)
 
 We can just grep through the source code of `malloc.c` for the string `memory corruption (fast)` to find the code for the check we are failing:
 
-```
+```c
       if (victim != 0)
         {
           if (__builtin_expect (fastbin_index (chunksize (victim)) != idx, 0))
